@@ -1,0 +1,6 @@
+./api/DatabaseApi.js file contains all the functions that make changes in database. Functions are straightforward, they do what their name says. Those function are called by http requests. Endpoints are defined in ./server.js file.
+
+When user opens website, PublicUsers and Ratings collections are sent to browser. PublicUsers contain only name, email, photo and role. Ratings contain movies data + statistics. After that collections are being converted into maps, therefore every record can be got by id instantly . Its the main principle of the app that allow changing data in one place, reduce redundant data, increase performance.
+
+App can serve react app that needs to be builded and located in ./react-app folder.
+

@@ -84,8 +84,13 @@ app.post("/ratings/update", async (req, res) => {
   res.json(response);
 });
 
-app.post("/reviews/update", async (req, res) => {
+app.post("/reviews/add", async (req, res) => {
   let response = await WriteReview(req.body);
+  res.json(response);
+});
+
+app.post("/reviews/edit", async (req, res) => {
+  let response = await EditReview(req.body);
   res.json(response);
 });
 

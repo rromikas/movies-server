@@ -243,18 +243,55 @@ module.exports = function () {
     });
   };
 
-  this.MoveMovieFromWishlistToWatched = ({ user, movieId }) => {
+  this.MoveMovieFromWishlistToWatched = ({ user, movieId, apiKey }) => {
     return new Promise(async (resolve, reject) => {
       try {
         let validUser = await generateUserFromToken(user.token);
         if (!validUser.error) {
           let updatedUser = await User.findOne({ email: validUser.email });
-          let movieIndex = updatedUser.wishlist.findIndex(
-            (x) => x.movie_id === movieId
+          let existingIndex = updatedUser.wishlist.findIndex(
+            (x) => x.movie_id === movieId.toString()
           );
-          let movie = updatedUser.wishlist[movieIndex];
-          updatedUser.wishlist.splice(movieIndex, 1);
-          updatedUser.watchedlist.push(movie);
+          if (existingIndex !== -1) {
+            updatedUser.wishlist.splice(existingIndex, 1);
+          }
+          let ratingExists = await Rating.findOne({ tmdb_id: movieId });
+          if (!ratingExists) {
+            let movieDetails = await getMovieDetails(apiKey, movieId);
+            movieDetails.imdb_id = movieDetails.imdb_id
+              ? movieDetails.imdb_id
+              : "uknown";
+            let rateObj = {};
+            rateObj["tmdb_id"] = movieDetails.id;
+            rateObj["imdb_id"] = movieDetails.imdb_id;
+            rateObj.movie_title = movieDetails.title;
+            rateObj.movie_genres = movieDetails.genres
+              ? movieDetails.genres.map((x) => x.name)
+              : movieDetails.genre_ids
+              ? movieDetails.genre_ids.map((x) => MoviesGenresMap[x])
+              : "unknown";
+            rateObj.movie_poster = movieDetails.poster_path;
+            rateObj.movie_release_date = movieDetails.release_date;
+            rateObj.movie_id = movieDetails.id;
+            let newRating = new Rating(rateObj);
+            newRating.save((er) => {
+              if (er) {
+                console.log("error saving new rating add watched list", er);
+              }
+            });
+          } else {
+            if (existingIndex !== -1) {
+              ratingExists["wishlisted"] -= 1;
+            }
+
+            ratingExists.save((er) => {
+              if (er) {
+                console.log("error saving new rating add wish list", er);
+              }
+            });
+          }
+
+          updatedUser.watchedlist.push({ movie_id: movieId });
           updatedUser.save((error) => {
             if (error) {
               resolve({ error });
@@ -264,6 +301,7 @@ module.exports = function () {
           });
         }
       } catch (error) {
+        console.log("error", error);
         resolve({ error });
       }
     });
@@ -376,6 +414,52 @@ module.exports = function () {
     });
   };
 
+  this.EditReview = ({ review, prevReview, userId }) => {
+    return new Promise(async (resolve, reject) => {
+      try {
+        if (prevReview.rating !== review.rating) {
+          let rating = await Rating.findOne({ movie_id: prevReview.movie_id });
+          if (rating) {
+            rating[prevReview.rating] -= 1;
+            rating[review.rating] += 1;
+            if (review.rating === "excellent_rate") {
+              rating["new_excellent_rate"].push({ date: Date.now() });
+              //new excellent rates determine recommended movies
+              UpdateNewExcellentRatings();
+            }
+            rating.save((er) => {
+              if (er) {
+                console.log("errror editing review in updating rating");
+              }
+            });
+          }
+        }
+        let user = await User.findOne({ _id: userId });
+        let ratingIndex = user.ratings.findIndex(
+          (x) => x.movie_id === prevReview.movie_id.toString()
+        );
+        if (ratingIndex !== -1) {
+          user.ratings[ratingIndex].rate_type = review.rating;
+        }
+        user.save((er) => {
+          if (er) {
+            console.log("error editing review in saving user", er);
+          }
+        });
+        Review.updateOne({ _id: prevReview._id }, review).exec((error, res) => {
+          if (error) {
+            resolve({ error });
+          } else {
+            resolve({ success: true });
+          }
+        });
+      } catch (error) {
+        console.log("Error", error);
+        resolve({ error });
+      }
+    });
+  };
+
   this.WriteReview = ({ review, movieId, user, apiKey }) => {
     return new Promise(async (resolve, reject) => {
       try {
@@ -477,7 +561,7 @@ module.exports = function () {
                 if (er) {
                   resolve({ error: er });
                 } else {
-                  resolve({ success: true });
+                  resolve({ success: true, reviewId: newReview._id });
                 }
               });
             } else {
@@ -494,7 +578,7 @@ module.exports = function () {
                 if (er) {
                   resolve({ error: er });
                 } else {
-                  resolve({ success: true });
+                  resolve({ success: true, reviewId: newReview._id });
                 }
               });
             }
@@ -1522,7 +1606,7 @@ module.exports = function () {
       try {
         let notifications = await Notification.find({
           _id: { $in: ids },
-          type: "App",
+          type: { $in: ["App", "System"] },
           start_date: { $lte: Date.now() },
           status: "Sent",
         });
