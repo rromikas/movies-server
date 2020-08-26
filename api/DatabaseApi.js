@@ -17,6 +17,7 @@ const Announcement = require("./models/AnnouncementModel");
 const Promotion = require("./models/PromotionModel");
 const Notification = require("./models/NotificationModel");
 const fetch = require("node-fetch");
+const bcrypt = require("bcrypt");
 var schedule = require("node-schedule");
 
 const origin = "https://api.themoviedb.org/3";
@@ -28,6 +29,12 @@ const FormatRequestUrl = (path, params = [], apiKey) => {
 
 const getMovieDetails = (apiKey, movieId) => {
   return fetch(FormatRequestUrl(`/movie/${movieId}`, [], apiKey)).then((res) =>
+    res.json()
+  );
+};
+
+const getSerieDetails = (apiKey, serieId) => {
+  return fetch(FormatRequestUrl(`/tv/${serieId}`, [], apiKey)).then((res) =>
     res.json()
   );
 };
@@ -147,10 +154,14 @@ module.exports = function () {
       try {
         let user = await User.findOne({
           email: credentials.email,
-          password: credentials.password,
           status: { $ne: "Deleted" },
         });
-        if (user) {
+        let passwordsMatch = await this.ComparePasswords(
+          user.password,
+          credentials.password
+        );
+        console.log("PAsswords march", passwordsMatch);
+        if (user && passwordsMatch) {
           user.last_login = Date.now();
           user.save();
           let res = await generateUserToken(user);
@@ -188,29 +199,61 @@ module.exports = function () {
     });
   };
 
+  this.ComparePasswords = (hash, plain) => {
+    return new Promise((resolve, reject) => {
+      bcrypt.compare(plain, hash, (error, isMatch) => {
+        if (error) {
+          resolve({ error });
+        } else {
+          resolve(isMatch);
+        }
+      });
+    });
+  };
+
+  this.CreatePassword = (password) => {
+    return new Promise((resolve, reject) => {
+      bcrypt.genSalt(10).then((salt) => {
+        bcrypt.hash(password, salt, (error, hash) => {
+          if (error) {
+            resolve({ error });
+          } else {
+            resolve(hash);
+          }
+        });
+      });
+    });
+  };
+
   this.Signup = (data) => {
     return new Promise(async (resolve, reject) => {
       try {
         data.display_name = data.email.split("@")[0];
         let exists = await User.findOne({ email: data.email });
         if (!exists) {
-          let user = new User(data);
-          data.user_id = user._id;
-          let publicUser = new PublicUser(data);
-          publicUser.save((er) => {
-            if (er) {
-              console.log("error saving public user: ", er);
-            }
-          });
+          let hashedPassword = await this.CreatePassword(data.password);
+          if (hashedPassword.error) {
+            resolve({ error: hashedPassword.error });
+          } else {
+            data.password = hashedPassword;
+            let user = new User(data);
+            data.user_id = user._id;
+            let publicUser = new PublicUser(data);
+            publicUser.save((er) => {
+              if (er) {
+                console.log("error saving public user: ", er);
+              }
+            });
 
-          user.save((er) => {
-            if (!er) {
-              console.log("error saving user: ", er);
-              resolve({ success: true, publicUser });
-            } else {
-              resolve({ error: er });
-            }
-          });
+            user.save((er) => {
+              if (!er) {
+                resolve({ success: true, publicUser });
+              } else {
+                console.log("error saving user: ", er);
+                resolve({ error: er });
+              }
+            });
+          }
         } else {
           resolve({ error: "User exists" });
         }
@@ -246,6 +289,7 @@ module.exports = function () {
   this.MoveMovieFromWishlistToWatched = ({ user, movieId, apiKey }) => {
     return new Promise(async (resolve, reject) => {
       try {
+        movieId = movieId.toString();
         let validUser = await generateUserFromToken(user.token);
         if (!validUser.error) {
           let updatedUser = await User.findOne({ email: validUser.email });
@@ -256,8 +300,20 @@ module.exports = function () {
             updatedUser.wishlist.splice(existingIndex, 1);
           }
           let ratingExists = await Rating.findOne({ tmdb_id: movieId });
+          let newRating;
           if (!ratingExists) {
-            let movieDetails = await getMovieDetails(apiKey, movieId);
+            let movieDetails;
+            if (movieId.substring(0, 6) === "serie-") {
+              let serieId = movieId.substring(6);
+              let serieDetails = await getSerieDetails(apiKey, serieId);
+              movieDetails = Object.assign({}, serieDetails, {
+                title: serieDetails.name,
+                release_date: serieDetails.first_air_date,
+                id: movieId,
+              });
+            } else {
+              movieDetails = await getMovieDetails(apiKey, movieId);
+            }
             movieDetails.imdb_id = movieDetails.imdb_id
               ? movieDetails.imdb_id
               : "uknown";
@@ -273,7 +329,7 @@ module.exports = function () {
             rateObj.movie_poster = movieDetails.poster_path;
             rateObj.movie_release_date = movieDetails.release_date;
             rateObj.movie_id = movieDetails.id;
-            let newRating = new Rating(rateObj);
+            newRating = new Rating(rateObj);
             newRating.save((er) => {
               if (er) {
                 console.log("error saving new rating add watched list", er);
@@ -296,7 +352,11 @@ module.exports = function () {
             if (error) {
               resolve({ error });
             } else {
-              resolve({ success: true, updatedUser });
+              resolve({
+                success: true,
+                updatedUser,
+                rating: ratingExists ? ratingExists : newRating,
+              });
             }
           });
         }
@@ -328,6 +388,7 @@ module.exports = function () {
   this.AddToWishList = ({ user, movieId, apiKey }) => {
     return new Promise(async (resolve, reject) => {
       try {
+        movieId = movieId.toString();
         let validUser = await generateUserFromToken(user.token);
         if (!validUser.error) {
           let updatedUser = await User.findOne({ email: validUser.email });
@@ -338,7 +399,18 @@ module.exports = function () {
 
           let ratingExists = await Rating.findOne({ tmdb_id: movieId });
           if (!ratingExists) {
-            let movieDetails = await getMovieDetails(apiKey, movieId);
+            let movieDetails;
+            if (movieId.substring(0, 6) === "serie-") {
+              let serieId = movieId.substring(6);
+              let serieDetails = await getSerieDetails(apiKey, serieId);
+              movieDetails = Object.assign({}, serieDetails, {
+                title: serieDetails.name,
+                release_date: serieDetails.first_air_date,
+                id: movieId,
+              });
+            } else {
+              movieDetails = await getMovieDetails(apiKey, movieId);
+            }
             movieDetails.imdb_id = movieDetails.imdb_id
               ? movieDetails.imdb_id
               : "uknown";
@@ -463,6 +535,7 @@ module.exports = function () {
   this.WriteReview = ({ review, movieId, user, apiKey }) => {
     return new Promise(async (resolve, reject) => {
       try {
+        movieId = movieId.toString();
         let validUser = await generateUserFromToken(user.token);
         if (!validUser.error) {
           let writer = await User.findOne({ email: validUser.email }).exec();
@@ -535,7 +608,18 @@ module.exports = function () {
 
             let ratingExists = await Rating.findOne({ tmdb_id: movieId });
             if (!ratingExists) {
-              let movieDetails = await getMovieDetails(apiKey, movieId);
+              let movieDetails;
+              if (movieId.substring(0, 6) === "serie-") {
+                let serieId = movieId.substring(6);
+                let serieDetails = await getSerieDetails(apiKey, serieId);
+                movieDetails = Object.assign({}, serieDetails, {
+                  title: serieDetails.name,
+                  release_date: serieDetails.first_air_date,
+                  id: movieId,
+                });
+              } else {
+                movieDetails = await getMovieDetails(apiKey, movieId);
+              }
               movieDetails.imdb_id = movieDetails.imdb_id
                 ? movieDetails.imdb_id
                 : "uknown";
@@ -561,7 +645,11 @@ module.exports = function () {
                 if (er) {
                   resolve({ error: er });
                 } else {
-                  resolve({ success: true, reviewId: newReview._id });
+                  resolve({
+                    success: true,
+                    reviewId: newReview._id,
+                    rating: newRating,
+                  });
                 }
               });
             } else {
@@ -578,7 +666,11 @@ module.exports = function () {
                 if (er) {
                   resolve({ error: er });
                 } else {
-                  resolve({ success: true, reviewId: newReview._id });
+                  resolve({
+                    success: true,
+                    reviewId: newReview._id,
+                    rating: ratingExists,
+                  });
                 }
               });
             }
@@ -727,9 +819,21 @@ module.exports = function () {
   this.AddViewToMovie = ({ movieId, apiKey }) => {
     return new Promise(async (resolve, reject) => {
       try {
+        movieId = movieId.toString();
         let ratingExists = await Rating.findOne({ tmdb_id: movieId });
         if (!ratingExists) {
-          let movieDetails = await getMovieDetails(apiKey, movieId);
+          let movieDetails;
+          if (movieId.substring(0, 6) === "serie-") {
+            let serieId = movieId.substring(6);
+            let serieDetails = await getSerieDetails(apiKey, serieId);
+            movieDetails = Object.assign({}, serieDetails, {
+              title: serieDetails.name,
+              release_date: serieDetails.first_air_date,
+              id: movieId,
+            });
+          } else {
+            movieDetails = await getMovieDetails(apiKey, movieId);
+          }
           movieDetails.imdb_id = movieDetails.imdb_id
             ? movieDetails.imdb_id
             : "uknown";
@@ -749,7 +853,7 @@ module.exports = function () {
           let newRating = new Rating(rateObj);
           newRating.save((er) => {
             if (er) {
-              console.log(er);
+              console.log("ERROR ADDING NEW RATING", er);
               resolve({ error: er });
             } else {
               resolve({ success: true });
@@ -766,6 +870,7 @@ module.exports = function () {
           });
         }
       } catch (error) {
+        console.log("Error adding view to movie", error);
         resolve({ error });
       }
     });
@@ -2003,7 +2108,8 @@ module.exports = function () {
               mySettings.past_bg_movies = [];
             }
 
-            let movieDetails = await getMovieDetails(
+            let movieDetails;
+            movieDetails = await getMovieDetails(
               apiKey,
               trends.results[foundMovie].id
             );
@@ -2063,9 +2169,10 @@ module.exports = function () {
         if (!err) {
           let email = decoded.data;
           if (email) {
+            let hashedPassword = await this.CreatePassword(password);
             let updatedUser = await User.findOneAndUpdate(
               { email },
-              { password }
+              { password: hashedPassword }
             );
             if (updatedUser) {
               resolve({ success: true });
