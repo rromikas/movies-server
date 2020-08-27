@@ -17,7 +17,7 @@ const Announcement = require("./models/AnnouncementModel");
 const Promotion = require("./models/PromotionModel");
 const Notification = require("./models/NotificationModel");
 const fetch = require("node-fetch");
-const bcrypt = require("bcrypt");
+const bcrypt = require("bcryptjs");
 var schedule = require("node-schedule");
 
 const origin = "https://api.themoviedb.org/3";
