@@ -489,22 +489,20 @@ module.exports = function () {
   this.EditReview = ({ review, prevReview, userId }) => {
     return new Promise(async (resolve, reject) => {
       try {
+        let rating = await Rating.findOne({ movie_id: prevReview.movie_id });
         if (prevReview.rating !== review.rating) {
-          let rating = await Rating.findOne({ movie_id: prevReview.movie_id });
-          if (rating) {
-            rating[prevReview.rating] -= 1;
-            rating[review.rating] += 1;
-            if (review.rating === "excellent_rate") {
-              rating["new_excellent_rate"].push({ date: Date.now() });
-              //new excellent rates determine recommended movies
-              UpdateNewExcellentRatings();
-            }
-            rating.save((er) => {
-              if (er) {
-                console.log("errror editing review in updating rating");
-              }
-            });
+          rating[prevReview.rating] -= 1;
+          rating[review.rating] += 1;
+          if (review.rating === "excellent_rate") {
+            rating["new_excellent_rate"].push({ date: Date.now() });
+            //new excellent rates determine recommended movies
+            UpdateNewExcellentRatings();
           }
+          rating.save((er) => {
+            if (er) {
+              console.log("errror editing review in updating rating");
+            }
+          });
         }
         let user = await User.findOne({ _id: userId });
         let ratingIndex = user.ratings.findIndex(
@@ -522,11 +520,42 @@ module.exports = function () {
           if (error) {
             resolve({ error });
           } else {
-            resolve({ success: true });
+            resolve({ success: true, rating });
           }
         });
       } catch (error) {
         console.log("Error", error);
+        resolve({ error });
+      }
+    });
+  };
+
+  this.DeleteReview = ({ review }) => {
+    return new Promise(async (resolve, reject) => {
+      try {
+        User.updateOne(
+          { reviews: review._id },
+          {
+            $pull: {
+              reviews: review._id,
+              ratings: { movie_id: review.movie_id },
+            },
+          }
+        ).exec();
+
+        Review.updateOne({ _id: review._id }, { deleted: true }).exec();
+        Rating.updateOne(
+          { movie_id: review.movie_id },
+          { $inc: { [review.rating]: -1 } }
+        ).exec();
+
+        let res = await this.DeleteMultipleCommentsInDatabase({
+          commentsIds: review.comments,
+        });
+
+        resolve(res);
+      } catch (error) {
+        console.log("error DeleteReview", error);
         resolve({ error });
       }
     });
@@ -683,6 +712,51 @@ module.exports = function () {
       } catch (er) {
         console.log("error", er);
         resolve({ error: er });
+      }
+    });
+  };
+
+  this.EditComment = ({ comment, commentId }) => {
+    return new Promise(async (resolve, reject) => {
+      try {
+        let updatedComment = await Comment.findOneAndUpdate(
+          { _id: commentId },
+          comment
+        );
+        if (updatedComment) {
+          resolve({ success: true, updatedComment });
+        } else {
+          resolve({ error: "Couldn't update comment" });
+        }
+      } catch (error) {
+        resolve({ error });
+      }
+    });
+  };
+
+  this.DeleteMultipleCommentsInDatabase = ({ commentsIds }) => {
+    return new Promise(async (resolve, reject) => {
+      try {
+        let comments = await Comment.find({});
+        let commentsObj = {};
+        comments.forEach((x) => {
+          commentsObj[x._id] = x;
+        });
+
+        let allIds = [];
+
+        const fetchIds = (idsArr) => {
+          allIds = allIds.concat(idsArr);
+          idsArr.forEach((x) => fetchIds(commentsObj[x].comments));
+        };
+
+        fetchIds(commentsIds);
+
+        let res = await this.DeleteMultipleComments(allIds);
+        resolve(res);
+      } catch (error) {
+        console.log("error DeleteMultipleCommentsInDatabase", error);
+        resolve({ error });
       }
     });
   };
@@ -2174,6 +2248,7 @@ module.exports = function () {
               { email },
               { password: hashedPassword }
             );
+            console.log("email, udpated", email, updatedUser);
             if (updatedUser) {
               resolve({ success: true });
             } else {

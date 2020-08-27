@@ -114,13 +114,28 @@ app.post("/reviews/get/movie", async (req, res) => {
   res.json(response);
 });
 
+app.post("/reviews/delete", async (req, res) => {
+  let response = await DeleteReview(req.body);
+  res.json(response);
+});
+
 app.post("/comments/update", async (req, res) => {
   let response = await WriteComment(req.body);
   res.json(response);
 });
 
+app.post("/comments/edit", async (req, res) => {
+  let response = await EditComment(req.body);
+  res.json(response);
+});
+
 app.post("/comments/get/review", async (req, res) => {
   let response = await GetReviewComments(req.body.reviewId);
+  res.json(response);
+});
+
+app.post("/comments/delete", async (req, res) => {
+  let response = await DeleteMultipleCommentsInDatabase(req.body);
   res.json(response);
 });
 

@@ -7,6 +7,7 @@ const SettingsModel = new mongoose.Schema({
   no_allowed_reviews_per_day: { type: Number, default: 5 },
   no_review_words: { type: Number, default: 400 },
   no_comment_characters: { type: Number, default: 400 },
+  no_display_name_characters: { type: Number, default: 40 },
   bg_image_refresh_time_days: { type: Number, default: 0 },
   bg_image_refresh_time_hours: { type: Number, default: 0 },
   bg_image_refresh_time_minutes: { type: Number, default: 0 },
