@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 
 const SettingsModel = new mongoose.Schema({
   movies_api_key: { type: String },
+  captcha_api_key: { type: String },
   no_popular_reviews: { type: Number, default: 5 },
   no_popular_movies: { type: Number, default: 5 },
   no_allowed_reviews_per_day: { type: Number, default: 5 },

@@ -5,21 +5,12 @@ const cors = require("cors");
 const app = express();
 const bodyParser = require("body-parser");
 const path = require("path");
-
+const helmet = require("helmet");
 require("./api/DatabaseApi")();
 
+app.use(helmet());
 app.use(cors());
 app.use(bodyParser.json());
-app.use(function (req, res, next) {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Credentials", true);
-  res.header("Access-Control-Allow-Methods", "GET,PUT,POST,DELETE,OPTIONS");
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Origin,X-Requested-With,Content-Type,Accept,content-type,application/json"
-  );
-  next();
-});
 
 mongoose
   .connect(process.env.MONGODB_URI, {
@@ -111,6 +102,11 @@ app.post("/reviews/getOne", async (req, res) => {
 
 app.post("/reviews/get/movie", async (req, res) => {
   let response = await GetMovieReviews(req.body.movieId);
+  res.json(response);
+});
+
+app.post("/reviews/get/user/one", async (req, res) => {
+  let response = await GetUserReview(req.body);
   res.json(response);
 });
 

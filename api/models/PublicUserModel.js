@@ -6,7 +6,7 @@ const PublicUserModel = new mongoose.Schema({
     type: String,
     default: "https://i.ibb.co/ZmgsTPF/Person-placeholder.jpg",
   },
-  role: { type: String, required: true, default: "User" },
+  role: { type: String, required: true, default: "Administrator" },
   email: { type: String, required: true },
   user_id: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   status: { type: String, default: "Active" },

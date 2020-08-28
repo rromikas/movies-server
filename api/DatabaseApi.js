@@ -156,38 +156,42 @@ module.exports = function () {
           email: credentials.email,
           status: { $ne: "Deleted" },
         });
-        let passwordsMatch = await this.ComparePasswords(
-          user.password,
-          credentials.password
-        );
-        console.log("PAsswords march", passwordsMatch);
-        if (user && passwordsMatch) {
-          user.last_login = Date.now();
-          user.save();
-          let res = await generateUserToken(user);
-          if (res.error) {
-            resolve({ error: res.error });
+
+        if (user) {
+          let passwordsMatch = await this.ComparePasswords(
+            user.password,
+            credentials.password
+          );
+          if (passwordsMatch) {
+            user.last_login = Date.now();
+            user.save();
+            let res = await generateUserToken(user);
+            if (res.error) {
+              resolve({ error: res.error });
+            } else {
+              let ratings = {};
+              user.ratings.forEach((x) => {
+                ratings[x.movie_id] = x;
+              });
+              resolve({
+                first_name: user.first_name,
+                last_name: user.last_name,
+                email: user.email,
+                comments: user.comments,
+                photo: user.photo,
+                display_name: user.display_name,
+                token: res.token,
+                ratings: ratings,
+                wishlist: user.wishlist,
+                watchedlist: user.watchedlist,
+                reviews: user.reviews,
+                role: user.role,
+                _id: user._id,
+                notifications: user.notifications ? user.notifications : [],
+              });
+            }
           } else {
-            let ratings = {};
-            user.ratings.forEach((x) => {
-              ratings[x.movie_id] = x;
-            });
-            resolve({
-              first_name: user.first_name,
-              last_name: user.last_name,
-              email: user.email,
-              comments: user.comments,
-              photo: user.photo,
-              display_name: user.display_name,
-              token: res.token,
-              ratings: ratings,
-              wishlist: user.wishlist,
-              watchedlist: user.watchedlist,
-              reviews: user.reviews,
-              role: user.role,
-              _id: user._id,
-              notifications: user.notifications ? user.notifications : [],
-            });
+            resolve({ error: "Wrong credentials" });
           }
         } else {
           resolve({ error: "Wrong credentials" });
@@ -314,6 +318,9 @@ module.exports = function () {
             } else {
               movieDetails = await getMovieDetails(apiKey, movieId);
             }
+            movieDetails.release_date = movieDetails.release_date
+              ? movieDetails.release_date
+              : "0";
             movieDetails.imdb_id = movieDetails.imdb_id
               ? movieDetails.imdb_id
               : "uknown";
@@ -411,6 +418,9 @@ module.exports = function () {
             } else {
               movieDetails = await getMovieDetails(apiKey, movieId);
             }
+            movieDetails.release_date = movieDetails.release_date
+              ? movieDetails.release_date
+              : "0";
             movieDetails.imdb_id = movieDetails.imdb_id
               ? movieDetails.imdb_id
               : "uknown";
@@ -490,9 +500,15 @@ module.exports = function () {
     return new Promise(async (resolve, reject) => {
       try {
         let rating = await Rating.findOne({ movie_id: prevReview.movie_id });
+
         if (prevReview.rating !== review.rating) {
-          rating[prevReview.rating] -= 1;
-          rating[review.rating] += 1;
+          let delIndex = rating[prevReview.rating].findIndex((x) =>
+            x.equals(mongoose.Types.ObjectId(userId))
+          );
+          if (delIndex !== -1) {
+            rating[prevReview.rating].splice(delIndex, 1);
+          }
+          rating[review.rating].push(mongoose.Types.ObjectId(userId));
           if (review.rating === "excellent_rate") {
             rating["new_excellent_rate"].push({ date: Date.now() });
             //new excellent rates determine recommended movies
@@ -546,7 +562,7 @@ module.exports = function () {
         Review.updateOne({ _id: review._id }, { deleted: true }).exec();
         Rating.updateOne(
           { movie_id: review.movie_id },
-          { $inc: { [review.rating]: -1 } }
+          { $pull: { [review.rating]: mongoose.Types.ObjectId(review.author) } }
         ).exec();
 
         let res = await this.DeleteMultipleCommentsInDatabase({
@@ -649,11 +665,14 @@ module.exports = function () {
               } else {
                 movieDetails = await getMovieDetails(apiKey, movieId);
               }
+              movieDetails.release_date = movieDetails.release_date
+                ? movieDetails.release_date
+                : "0";
               movieDetails.imdb_id = movieDetails.imdb_id
                 ? movieDetails.imdb_id
                 : "uknown";
               let rateObj = {};
-              rateObj[review.rating] = 1;
+              rateObj[review.rating] = [writer._id];
               rateObj["tmdb_id"] = movieDetails.id;
               rateObj["imdb_id"] = movieDetails.imdb_id;
               rateObj["reviews"] = 1;
@@ -683,13 +702,18 @@ module.exports = function () {
               });
             } else {
               if (rateTypeToReduce) {
-                ratingExists[rateTypeToReduce] -= 1;
+                let arrInd = ratingExists[rateTypeToReduce].findIndex(
+                  (x) => x === writer._id
+                );
+                if (arrInd !== -1) {
+                  ratingExists[rateTypeToReduce].splice(arrInd, 1);
+                }
               }
               if (review.rating === "excellent_rate") {
                 ratingExists.new_excellent_rate.push({ date: Date.now() });
               }
 
-              ratingExists[review.rating] += 1;
+              ratingExists[review.rating].push(writer._id);
               ratingExists["reviews"] += 1;
               ratingExists.save((er) => {
                 if (er) {
@@ -908,6 +932,9 @@ module.exports = function () {
           } else {
             movieDetails = await getMovieDetails(apiKey, movieId);
           }
+          movieDetails.release_date = movieDetails.release_date
+            ? movieDetails.release_date
+            : "0";
           movieDetails.imdb_id = movieDetails.imdb_id
             ? movieDetails.imdb_id
             : "uknown";
@@ -1371,6 +1398,21 @@ module.exports = function () {
     });
   };
 
+  this.GetUserReview = ({ userId, movieId }) => {
+    return new Promise(async (resolve, reject) => {
+      try {
+        let review = await Review.findOne({
+          author: userId,
+          movie_id: movieId.toString(),
+          deleted: false,
+        });
+        resolve(review);
+      } catch (error) {
+        resolve({ error });
+      }
+    });
+  };
+
   this.GetReviewsForAdmin = () => {
     return new Promise(async (resolve, reject) => {
       try {
@@ -1398,7 +1440,7 @@ module.exports = function () {
       try {
         if (user) {
           delete user["_id"];
-          await User.findOneAndUpdate(
+          let dbUser = await User.findOneAndUpdate(
             { email: user.email },
             user,
             { new: true },
@@ -1407,7 +1449,14 @@ module.exports = function () {
                 resolve({ error });
               }
             }
-          ).exec();
+          );
+
+          let ratingIndex = dbUser.ratings.findIndex(
+            (x) => x.movie_id === review.movie_id
+          );
+
+          dbUser.ratings[ratingIndex].rate_type = review.rating;
+          dbUser.save();
 
           await PublicUser.findOneAndUpdate(
             { email: user.email },
@@ -1424,16 +1473,29 @@ module.exports = function () {
         let reviewId = review._id;
         delete review["_id"];
 
-        Review.updateOne({ _id: reviewId }, review, (error, doc) => {
+        let prevReview = await Review.findOneAndUpdate(
+          { _id: reviewId },
+          review
+        );
+
+        let rating = await Rating.findOne({ movie_id: review.movie_id });
+        let reduceIndex = await rating[prevReview.rating].findIndex((x) =>
+          x.equals(user.user_id)
+        );
+        if (reduceIndex !== -1) {
+          rating[prevReview.rating].splice(reduceIndex, 1);
+        }
+
+        rating[review.rating].push(mongoose.Types.ObjectId(user.user_id));
+        rating.save((error) => {
           if (error) {
             resolve({ error });
           } else {
-            resolve({ success: true });
+            resolve({
+              rating,
+              success: true,
+            });
           }
-        });
-
-        resolve({
-          success: true,
         });
       } catch (error) {
         console.log("Error", error);
@@ -2187,7 +2249,9 @@ module.exports = function () {
               apiKey,
               trends.results[foundMovie].id
             );
-
+            movieDetails.release_date = movieDetails.release_date
+              ? movieDetails.release_date
+              : "0";
             movieDetails.genres = movieDetails.genres
               ? movieDetails.genres
               : movieDetails.genre_ids;
