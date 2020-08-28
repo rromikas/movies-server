@@ -7,7 +7,7 @@ const UserModel = new mongoose.Schema({
     default: "https://i.ibb.co/ZmgsTPF/Person-placeholder.jpg",
   },
   password: String,
-  role: { type: String, default: "Administrator" },
+  role: { type: String, default: "User" },
   first_name: String,
   last_name: String,
   display_name: String,
