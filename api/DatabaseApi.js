@@ -239,6 +239,8 @@ module.exports = function () {
           if (hashedPassword.error) {
             resolve({ error: hashedPassword.error });
           } else {
+            let allUsers = await User.find({});
+            data.role = allUsers.length ? "User" : "Administrator";
             data.password = hashedPassword;
             let user = new User(data);
             data.user_id = user._id;
