@@ -797,10 +797,10 @@ module.exports = function () {
               `You received reply to your ${
                 x.user_id === comment.review_author ? "review" : "comment"
               } from ${comment.author_name}`,
-              `https://mowies.netlify.com/movie/${comment.movie_id}`,
+              `${process.env.WEBSITE_URL}/movie/${comment.movie_id}`,
               user.photo,
               comment.comment,
-              "https://mowies.netlify.com"
+              process.env.WEBSITE_URL
             );
             let title = `${comment.author_name} replied to your ${
               x.user_id === comment.review_author ? "review" : "comment"
@@ -2293,7 +2293,7 @@ module.exports = function () {
           } else {
             SendEmail(
               email,
-              `<a href='http://localhost:3000/reset-password/${token}'>Reset Password</a>`,
+              `<a href='${process.env.WEBSITE_URL}/reset-password/${token}'>Reset Password</a>`,
               "Link to reset your password"
             );
             resolve({ success: true });
